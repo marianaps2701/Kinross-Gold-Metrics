@@ -1,1 +1,3 @@
 # Kinross-Gold-Metrics
+
+This project extracts and analyzes financial and market data for Kinross Gold using Python and the yfinance library. The script collects historical price data, trading volume, and fundamental financial indicators such as revenue, gross profit, net income, EBITDA, and shareholders’ equity. It then computes key financial metrics including returns and profitability margins (gross, operating, EBITDA, and net) and organizes the data into structured datasets (daily, monthly, quarterly, and annual). The final output is exported to an Excel file for further financial analysis and visualization.
