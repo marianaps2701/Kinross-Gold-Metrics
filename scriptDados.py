@@ -8,9 +8,13 @@ info = ticker.info
 free_float = info.get("floatShares")
 shares_outstanding = info.get("sharesOutstanding")
 market_cap_atual = info.get("marketCap")
+div_yield = info.get("dividendYield")
 
 #income
 income = ticker.financials
+
+#balanço
+balanco = ticker.balance_sheet
 
 #receita
 receita = income.loc["Total Revenue"]
@@ -60,6 +64,67 @@ operacional.columns = ["Date", "Operating_Income"]
 operacional["Year"] = pd.to_datetime(operacional["Date"]).dt.year
 operacional = operacional[["Year", "Operating_Income"]]
 
+#divida bruta
+divida_bruta = balanco.loc["Total Debt"]
+divida_bruta = divida_bruta.reset_index()
+divida_bruta.columns = ["Date", "Divida_Bruta"]
+
+divida_bruta["Year"] = pd.to_datetime(divida_bruta["Date"]).dt.year
+divida_bruta = divida_bruta[["Year", "Divida_Bruta"]]
+
+#liquidez corrente
+ativo_circulante = balanco.loc["Current Assets"]
+passivo_circulante = balanco.loc['Current Liabilities']
+
+liq_corrente = ativo_circulante / passivo_circulante
+liq_corrente = liq_corrente.reset_index()
+liq_corrente.columns = ["Date", "Liquidez_Corrente"]
+
+liq_corrente["Year"] = pd.to_datetime(liq_corrente["Date"]).dt.year
+liq_corrente = liq_corrente[["Year", "Liquidez_Corrente"]]
+
+#patrimonio liquido
+balanco_tri = ticker.quarterly_balance_sheet
+
+#trimestral
+patrimonio_liq_tri = balanco_tri.loc["Total Equity Gross Minority Interest"]
+patrimonio_liq_tri = patrimonio_liq_tri.reset_index()
+patrimonio_liq_tri.columns = ["Data", "Patrimonio_Liquido"]
+patrimonio_liq_tri["Quarter"] = pd.to_datetime(patrimonio_liq_tri["Data"]).dt.to_period("Q")
+patrimonio_liq_tri["Quarter"] = patrimonio_liq_tri["Quarter"].astype(str)
+
+#anual
+patrimonio_liq = balanco.loc["Total Equity Gross Minority Interest"]
+patrimonio_liq = patrimonio_liq.reset_index()
+patrimonio_liq.columns = ["Data", "Patrimonio_Liquido"]
+patrimonio_liq["Year"] = pd.to_datetime(patrimonio_liq["Data"]).dt.year
+patrimonio_liq = patrimonio_liq[["Year", "Patrimonio_Liquido"]]
+
+#shares
+eps = income.loc["Basic EPS"]
+lucro = income.loc["Net Income"]
+shares = lucro/eps
+
+shares = shares.reset_index()
+shares.columns = ["Date", "Shares"]
+shares["Year"] = pd.to_datetime(shares["Date"]).dt.year
+shares = shares[["Year", "Shares"]]
+
+#ativos totais
+ativos = balanco.loc["Total Assets"]
+ativos = ativos.reset_index()
+ativos.columns = ["Date", "Total_Assets"]
+
+ativos["Year"] = pd.to_datetime(ativos["Date"]).dt.year
+ativos = ativos[["Year", "Total_Assets"]]
+
+#caixa
+caixa = balanco.loc["Cash And Cash Equivalents"]
+caixa = caixa.reset_index()
+caixa.columns = ["Date", "Cash"]
+
+caixa["Year"] = pd.to_datetime(caixa["Date"]).dt.year
+caixa = caixa[["Year", "Cash"]]
 
 #percentual de free float
 if free_float and shares_outstanding:
@@ -74,23 +139,17 @@ resumo = pd.DataFrame({
         "Empresa", "Ticker",
         "Free float (ações)", "Free float (%)",
         "Ações em circulação",
-        "Valor de mercado atual"
+        "Valor de mercado atual",
+        "Dividend Yield (12M)"
     ],
     "Valor": [
         "Kinross Gold", "KGC",
         free_float, f"{percentual_free_float:.2f}%" if percentual_free_float else None,
         shares_outstanding,
-        market_cap_atual
+        market_cap_atual,
+        div_yield
     ]
 })
-
-#patrimonio liquido
-balanco_tri = ticker.quarterly_balance_sheet
-patrimonio_tri = balanco_tri.loc["Total Equity Gross Minority Interest"]
-patrimonio_tri = patrimonio_tri.reset_index()
-patrimonio_tri.columns = ["Data", "Patrimonio_Liquido"]
-patrimonio_tri["Quarter"] = pd.to_datetime(patrimonio_tri["Data"]).dt.to_period("Q")
-patrimonio_tri["Quarter"] = patrimonio_tri["Quarter"].astype(str)
 
 # BASE DIÁRIA
 diario = ticker.history(start="2020-01-01", end="2025-12-31", interval="1d")
@@ -109,7 +168,7 @@ trimestral = trimestral.groupby("Quarter").agg(
 
 trimestral = pd.merge(
     trimestral,
-    patrimonio_tri[["Quarter", "Patrimonio_Liquido"]],
+    patrimonio_liq_tri[["Quarter", "Patrimonio_Liquido"]],
     on="Quarter",
     how="left"
 )
@@ -173,7 +232,13 @@ dfs = [
     lucro_liquido,
     despesas,
     ebitda,
-    operacional
+    operacional,
+    divida_bruta,
+    liq_corrente,
+    patrimonio_liq,
+    shares,
+    ativos,
+    caixa
 ]
 
 anual = reduce(lambda left, right: pd.merge(left, right, on="Year", how="left"), dfs)
@@ -186,12 +251,32 @@ anual["margem_operacional(%)"] = anual["Operating_Income"] / anual["Receita"] * 
 
 anual['margem_liquida(%)'] = anual["Lucro Líquido"] / anual["Receita"] * 100
 
+anual["LPA"] = anual["Lucro Líquido"] / anual["Shares"]
 
-# valor de mercado anual (estimado)
-if shares_outstanding:
-    anual["valor_mercado_estimado"] = anual["preco_medio_fechamento"] * shares_outstanding
-else:
-    anual["valor_mercado_estimado"] = None
+anual["VPA"] = anual["Patrimonio_Liquido"] / anual["Shares"]
+
+anual["PL"] = anual["preco_medio_fechamento"] / anual["LPA"]
+
+anual["P_VPA"] = anual["preco_medio_fechamento"] / anual["VPA"]
+
+anual["ROE"] = anual["Lucro Líquido"] / anual["Patrimonio_Liquido"]
+
+# ROA
+anual["ROA"] = anual["Lucro Líquido"] / anual["Total_Assets"]
+
+# ROIC (aproximação)
+anual["NOPAT"] = anual["Operating_Income"] * 0.7  # assumindo 30% imposto
+anual["Capital_Investido"] = anual["Total_Assets"] - anual["Cash"]
+
+anual["ROIC"] = anual["NOPAT"] / anual["Capital_Investido"]
+
+anual["ROE"] = anual["ROE"] * 100
+anual["ROA"] = anual["ROA"] * 100
+anual["ROIC"] = anual["ROIC"] * 100
+
+anual["valor_mercado"] = anual["preco_medio_fechamento"] * anual["Shares"]
+
+anual["PSR"] = anual["valor_mercado"] / anual["Receita"]
 
 # SALVAR NO EXCEL
 with pd.ExcelWriter("kinross_gold_2020_2025.xlsx", engine="openpyxl") as writer:
